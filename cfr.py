@@ -4,6 +4,7 @@ import regret
 ACTIONS = regret.ACTIONS
 nodes = {}
 
+# TODO: graph dist(node.get_average_strategy(), analytical nash equilibrium) via KL divergence (has to be D(nash || avg strat) bc zeroes)
 
 class Node(regret.Regret):
     """ Information set node class definition. """
@@ -37,21 +38,19 @@ def cfr(cards: list, history: str, p0: float, p1: float) -> float:
     util = [0]*ACTIONS
     node_util = 0
 
-    # for a in [regret.get_action(strategy)]:
     for a in range(ACTIONS):
-        next_history = history + ("p" if a == 0 else "b")
+        next_history = history + regret.game.actions[a]
         # negative because next call's value is from the opponent's perspective
-        util[a] = -cfr(cards, next_history, p0*strategy[a], p1) if player == 0 else \
-                  -cfr(cards, next_history, p0, p1*strategy[a])
+        util[a] = -(cfr(cards, next_history, p0*strategy[a], p1) if player == 0 else \
+                    cfr(cards, next_history, p0, p1*strategy[a]))
         node_util += strategy[a]*util[a]
 
     # For each action, compute and accumulate counterfactual regret
-    for a in range(ACTIONS):
-        regrets = util[a] - node_util
-        node.regret_sum[a] += (p1 if player == 0 else p0)*regrets
+    node.regret(util, node_util, p1 if player == 0 else p0)
 
     return node_util
 
+@regret.store
 def train(iterations: int) -> float:
     """ Calculates the Nash equilibrium. """
     cards = list(range(1, 4))
@@ -60,7 +59,7 @@ def train(iterations: int) -> float:
         random.shuffle(cards)
         util += cfr(cards, "", 1, 1)
 
-    return util
+    return nodes, util
 
 def play(first: int=random.randint(0, 1)) -> float:
     """ Has a human play againt the computer. """
@@ -86,12 +85,12 @@ def play(first: int=random.randint(0, 1)) -> float:
 
 if __name__ == "__main__":
     random.seed(7)
-    iterations = 10**7
+    iterations = 10**6
 
-    util = train(iterations)
+    _, util = train(iterations)
     print(f"Average game value: {util/iterations:.3f}")
     for n in sorted(map(str, nodes.values())):
         print(n)
 
     # print(play(1))
-    regret.game_session(play)
+    # regret.game_session(play)
