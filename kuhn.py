@@ -1,8 +1,9 @@
 PASS, BET, ACTIONS = range(3)
 actions = ["p", "b"]
 
-def util(cards: list, history: str) -> float:
+def util(cards: list, history: list) -> float:
     """ Returns the utility of a terminal state, None if state is not terminal. """
+    history = "".join(history)
     plays = len(history)
     player = plays % 2
     opp = player ^ 1

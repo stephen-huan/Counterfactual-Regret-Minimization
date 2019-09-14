@@ -9,7 +9,7 @@ nodes = {}
 class Node(regret.Regret):
     """ Information set node class definition. """
 
-    def __init__(self, info_set: str):
+    def __init__(self, info_set: list):
         super().__init__()
         self.info_set = info_set
 
@@ -17,21 +17,22 @@ class Node(regret.Regret):
         """ Gets the information set string representation. """
         return f"{self.info_set: <3}: {list(map(lambda x: round(x, 3), self.get_average_strategy()))}"
 
-def cfr(cards: list, history: str, p0: float, p1: float) -> float:
+def cfr(info: list, history: list, p0: float, p1: float) -> float:
     """ Counterfactual regret minimzation iteration. """
     player = len(history) % 2
 
     # Return payoff for terminal states
-    util = regret.game.util(cards, history)
+    util = regret.game.util(info, history)
     if util is not None:
         return util
 
-    info_set = str(cards[player]) + history
+    info_set = [str(info[player])] + history
 
     # Get information set node or create it if nonexistant
-    if info_set not in nodes:
-        nodes[info_set] = Node(info_set)
-    node = nodes[info_set]
+    repr = " ".join(info_set)
+    if repr not in nodes:
+        nodes[repr] = Node(repr)
+    node = nodes[repr]
 
     # For each action, recursively call cfr with additional history and probability
     strategy = node.get_strategy(p0 if player == 0 else p1)
@@ -39,10 +40,10 @@ def cfr(cards: list, history: str, p0: float, p1: float) -> float:
     node_util = 0
 
     for a in range(ACTIONS):
-        next_history = history + regret.game.actions[a]
+        next_history = history + [regret.game.actions[a]]
         # negative because next call's value is from the opponent's perspective
-        util[a] = -(cfr(cards, next_history, p0*strategy[a], p1) if player == 0 else \
-                    cfr(cards, next_history, p0, p1*strategy[a]))
+        util[a] = -(cfr(info, next_history, p0*strategy[a], p1) if player == 0 else \
+                    cfr(info, next_history, p0, p1*strategy[a]))
         node_util += strategy[a]*util[a]
 
     # For each action, compute and accumulate counterfactual regret
@@ -57,7 +58,7 @@ def train(iterations: int) -> float:
     util = 0
     for i in range(iterations):
         random.shuffle(cards)
-        util += cfr(cards, "", 1, 1)
+        util += cfr(cards, [], 1, 1)
 
     return nodes, util
 

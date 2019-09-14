@@ -5,7 +5,7 @@ try:
 except ModuleNotFoundError:
     print("Scientific libraries not found, some functionality may be broken...")
 # backend methods specific to a certain game
-import blotto as game
+import kuhn as game
 
 ACTIONS = game.ACTIONS
 
@@ -161,6 +161,9 @@ def game_session(f=lambda: play(strategy)) -> None:
             print(f"\nAverage util: {util}/{games} = {util/games:.2f}")
         else:
             print()
+
+def test():
+    print(ACTIONS)
 
 if __name__ == "__main__":
     random.seed(7)
