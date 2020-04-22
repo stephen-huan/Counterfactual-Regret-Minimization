@@ -1,6 +1,8 @@
+# implements the rock paper scissors game
+
 ROCK, PAPER, SCISSORS, ACTIONS = range(4)
 actions = ["rock", "paper", "scissors"]
-opp_strategy = [0.4, 0.3, 0.3]
+OPP_STRATEGY = [0.4, 0.3, 0.3]
 
 def util(opp_action: int) -> list:
     """ Calculates the util list for an opponent action. """
