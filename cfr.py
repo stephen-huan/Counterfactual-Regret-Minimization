@@ -12,7 +12,7 @@ should implement:
     - actions: the string interpretation of a given action
     -    util: the util for each possible action given an opponent action
 """
-import games.kuhn as game
+import games.dudo as game
 
 ACTIONS = game.ACTIONS
 # set the cache name to the name of the game
@@ -44,7 +44,7 @@ class Regret:
     def get_strategy(self, realization_weight: float=1) -> list:
         """ Gets the current mixed strategy through regret-matching.
             TODO: try softmax instead of positive scaling """
-        self.strategy = [self.regret_sum[a] if self.regret_sum[a] > 0 else 0 for a in range(ACTIONS)]
+        self.strategy = [max(self.regret_sum[a], 0) for a in range(ACTIONS)]
         norm_sum = sum(self.strategy)
 
         for a in range(ACTIONS):
@@ -60,7 +60,7 @@ class Regret:
     def get_average_strategy(self) -> list:
         """ Gets the average mixed strategy across all training iterations. """
         norm_sum = sum(self.strategy_sum)
-        return [self.strategy_sum[a]/norm_sum if norm_sum > 0 else 1/ACTIONS for a in range(ACTIONS)]
+        return [self.strategy_sum[a]/norm_sum for a in range(ACTIONS)]
 
     def regret(self, action_util: list, my_util: float, realization_weight: float=1) -> None:
         """ Updates regret based upon an utility list and the current utility. """
@@ -119,7 +119,9 @@ class Node(Regret):
         """ Gets the information set string representation. """
         return f"{self.info_set: <3}: {list(map(lambda x: round(x, 3), self.get_average_strategy()))}"
 
-def cfr(n, info: list, history: list=[], p0: float=1, p1: float=1) -> float:
+### kuhn-poker specific
+
+def kuhn_cfr(info: list, history: list=[], p0: float=1, p1: float=1) -> float:
     """ Counterfactual regret minimzation iteration. """
     player = len(history) % 2
 
@@ -144,8 +146,8 @@ def cfr(n, info: list, history: list=[], p0: float=1, p1: float=1) -> float:
     for a in range(ACTIONS):
         next_history = history + [game.actions[a]]
         # negative because next call's value is from the opponent's perspective
-        util[a] = -(cfr(info, next_history, p0*strategy[a], p1) if player == 0 else \
-                    cfr(info, next_history, p0, p1*strategy[a]))
+        util[a] = -(kuhn_cfr(info, next_history, p0*strategy[a], p1) if player == 0 else \
+                    kuhn_cfr(info, next_history, p0, p1*strategy[a]))
         node_util += strategy[a]*util[a]
 
     # For each action, compute and accumulate counterfactual regret
@@ -154,17 +156,17 @@ def cfr(n, info: list, history: list=[], p0: float=1, p1: float=1) -> float:
     return node_util
 
 @cache.cache(overwrite=False)
-def train(iterations: int) -> float:
+def kuhn_train(iters: int) -> float:
     """ Calculates the Nash equilibrium. """
     cards = list(range(1, 4))
     util = 0
-    for i in range(iterations):
+    for i in range(iters):
         random.shuffle(cards)
-        util += cfr(cards)
+        util += kuhn_cfr(cards)
 
     return nodes, util
 
-def play_kuhn(first: int=random.randint(0, 1)) -> float:
+def kuhn_play(first: int=random.randint(0, 1)) -> float:
     """ Has a human play againt the computer. """
     cards = list(range(1, 4))
     random.shuffle(cards)
@@ -180,15 +182,136 @@ def play_kuhn(first: int=random.randint(0, 1)) -> float:
         move = game.actions[p[turn](str(cards[turn]) + history)]
         if turn != first:
             print(f"Computer plays {move}")
-        history += " " + move 
+        history += " " + move
         turn ^= 1
 
     print(f"Computer had card {cards[first ^ 1]}")
     return (1 if len(history) % 2 == first else -1)*game.util(cards, history)
 
+### dudo specific
+
+class DudoRegret:
+
+    """ Represents a strategy. """
+
+    def __init__(self, l):
+        self.regret_sum = [0]*ACTIONS
+        self.strategy = [0]*ACTIONS
+        self.strategy_sum =[0]*ACTIONS
+        self.l = l
+
+    def get_strategy(self, realization_weight: float=1) -> list:
+        """ Gets the current mixed strategy through regret-matching.
+            TODO: try softmax instead of positive scaling """
+        self.strategy = [max(self.regret_sum[a], 0) for a in range(ACTIONS)]
+        norm_sum = sum(self.strategy)
+
+        for a in range(self.l, ACTIONS):
+            if norm_sum > 0:
+                self.strategy[a] /= norm_sum
+            else:
+                # uniform strategy
+                self.strategy[a] = 1/(ACTIONS - self.l)
+            self.strategy_sum[a] += realization_weight*self.strategy[a]
+
+        return self.strategy
+
+    def get_average_strategy(self) -> list:
+        """ Gets the average mixed strategy across all training iterations. """
+        norm_sum = sum(self.strategy_sum)
+        return [self.strategy_sum[a]/norm_sum for a in range(ACTIONS)]
+
+    def regret(self, action_util: list, my_util: float, realization_weight: float=1) -> None:
+        """ Updates regret based upon an utility list and the current utility. """
+        # Accumulate action regrets
+        for a in range(self.l, ACTIONS):
+            regret = action_util[a] - my_util
+            self.regret_sum[a] += realization_weight*regret
+
+class DudoNode(DudoRegret):
+
+    """ Information set node class definition. """
+
+    def __init__(self, info_set: list, l) -> None:
+        super().__init__(l)
+        self.info_set = info_set
+
+    def __str__(self) -> str:
+        """ Gets the information set string representation. """
+        return f"{self.info_set: <3}: {list(map(lambda x: round(x, 3), self.get_average_strategy()))}"
+
+def dudo_cfr(info: list, history: list=[], p0: float=1, p1: float=1) -> float:
+    """ Counterfactual regret minimzation iteration. """
+    player = game.get_player(history)
+
+    # Return payoff for terminal states
+    util = game.util(info, history)
+    if util is not None:
+        return util
+
+    # Get information set node or create it if nonexistant
+    repr = game.hash_info_set(info[player], history)
+    if repr not in nodes:
+        nodes[repr] = DudoNode(f"{info[player]} {game.format_history(history)}", game.last(history) + 1)
+
+    node = nodes[repr]
+
+    # For each action, recursively call cfr with additional history and probability
+    strategy = node.get_strategy(p0 if player == 0 else p1)
+    util = [0]*ACTIONS
+    node_util = 0
+
+    for a in range(game.last(history) + 1, ACTIONS):
+        if not history[a]:
+            next_history = list(history)
+            next_history[a] = True
+            # negative because next call's value is from the opponent's perspective
+            util[a] = -(dudo_cfr(info, next_history, p0*strategy[a], p1) if player == 0 else \
+                        dudo_cfr(info, next_history, p0, p1*strategy[a]))
+            node_util += strategy[a]*util[a]
+
+    # For each action, compute and accumulate counterfactual regret
+    node.regret(util, node_util, p1 if player == 0 else p0)
+
+    return node_util
+
+# @cache.cache(overwrite=True)
+def dudo_train(iters: int) -> float:
+    """ Calculates the Nash equilibrium. """
+    util = 0
+    poss = [(i, j) for i in range(1, 7) for j in range(1, 7)]
+    for i in range(iters):
+        # util += dudo_cfr([random.randrange(1, 7), random.randrange(1, 7)], [False]*ACTIONS)
+        util += dudo_cfr(poss[iters % len(poss)], [False]*ACTIONS)
+
+    return nodes, util
+
+def dudo_play(first: int=random.randint(0, 1)) -> float:
+    """ Has a human play againt the computer. """
+    rolls = [random.randrange(1, 7), random.randrange(1, 7)]
+
+    print(f"Your roll is {rolls[first]}")
+    p = [lambda i: play.get_move(), lambda i: get_action(nodes[i].get_average_strategy())]
+    if first == 1:
+        p = p[::-1]
+
+    history = [False]*ACTIONS
+    turn = 0
+    while game.util(rolls, history) is None:
+        move = p[turn](game.hash_info_set(rolls[turn], history))
+        print(game.last(history), "|", nodes[game.hash_info_set(rolls[turn], history)])
+        # print(game.last(history))
+        if turn != first:
+            print(f"Computer plays {game.actions[move]}")
+        history[move] = True
+        turn ^= 1
+
+    print(f"Computer had roll {rolls[first ^ 1]}")
+    return (1 if first == 0 else -1)*game.util(rolls, history)
+
 if __name__ == "__main__":
-    # random.seed(7)
-    iters = 10**6
+    random.seed(7)
+    iters = 10**3
 
     ### normal form games
     # # train against fixed opponent
@@ -199,13 +322,24 @@ if __name__ == "__main__":
     # strategy, _ = train_normal(iters)
     # print(strategy, _)
     # print(play.format_strategy(strategy))
-    #
+
     # play.game_session(strategy)
 
-    nodes, util = train(iters)
+    ### kuhn poker
+    # nodes, util = kuhn_train(iters)
+    #
+    # print(f"Average game value: {util/iters:.3f}")
+    # for n in sorted(map(str, nodes.values())):
+    #     print(n)
+    #
+    # print(kuhn_play())
+
+    ### dudo
+    nodes, util = dudo_train(iters)
 
     print(f"Average game value: {util/iters:.3f}")
-    for n in sorted(map(str, nodes.values())):
-        print(n)
+    print(len(nodes))
+    # for n in sorted(map(str, nodes.values())):
+    #     print(n)
 
-    play_kuhn()
+    print(dudo_play(0))
