@@ -199,6 +199,7 @@ class DudoRegret:
         self.strategy = [0]*ACTIONS
         self.strategy_sum =[0]*ACTIONS
         self.l = l
+        self.r = ACTIONS if l != 0 else ACTIONS - 1
 
     def get_strategy(self, realization_weight: float=1) -> list:
         """ Gets the current mixed strategy through regret-matching.
@@ -206,12 +207,12 @@ class DudoRegret:
         self.strategy = [max(self.regret_sum[a], 0) for a in range(ACTIONS)]
         norm_sum = sum(self.strategy)
 
-        for a in range(self.l, ACTIONS):
+        for a in range(self.l, self.r):
             if norm_sum > 0:
                 self.strategy[a] /= norm_sum
             else:
                 # uniform strategy
-                self.strategy[a] = 1/(ACTIONS - self.l)
+                self.strategy[a] = 1/(self.r - self.l)
             self.strategy_sum[a] += realization_weight*self.strategy[a]
 
         return self.strategy
@@ -224,7 +225,7 @@ class DudoRegret:
     def regret(self, action_util: list, my_util: float, realization_weight: float=1) -> None:
         """ Updates regret based upon an utility list and the current utility. """
         # Accumulate action regrets
-        for a in range(self.l, ACTIONS):
+        for a in range(self.l, self.r):
             regret = action_util[a] - my_util
             self.regret_sum[a] += realization_weight*regret
 
@@ -261,7 +262,7 @@ def dudo_cfr(info: list, history: list=[], p0: float=1, p1: float=1) -> float:
     util = [0]*ACTIONS
     node_util = 0
 
-    for a in range(game.last(history) + 1, ACTIONS):
+    for a in range(game.last(history) + 1, ACTIONS if sum(history) > 0 else ACTIONS - 1):
         if not history[a]:
             next_history = list(history)
             next_history[a] = True
@@ -275,14 +276,14 @@ def dudo_cfr(info: list, history: list=[], p0: float=1, p1: float=1) -> float:
 
     return node_util
 
-# @cache.cache(overwrite=True)
+@cache.cache(overwrite=True)
 def dudo_train(iters: int) -> float:
     """ Calculates the Nash equilibrium. """
     util = 0
     poss = [(i, j) for i in range(1, 7) for j in range(1, 7)]
     for i in range(iters):
         # util += dudo_cfr([random.randrange(1, 7), random.randrange(1, 7)], [False]*ACTIONS)
-        util += dudo_cfr(poss[iters % len(poss)], [False]*ACTIONS)
+        util += dudo_cfr(poss[i % len(poss)], [False]*ACTIONS)
 
     return nodes, util
 
@@ -291,7 +292,8 @@ def dudo_play(first: int=random.randint(0, 1)) -> float:
     rolls = [random.randrange(1, 7), random.randrange(1, 7)]
 
     print(f"Your roll is {rolls[first]}")
-    p = [lambda i: play.get_move(), lambda i: get_action(nodes[i].get_average_strategy())]
+    # p = [lambda i: play.get_move(), lambda i: get_action(nodes[i].get_average_strategy())]
+    p = [lambda i: get_action(nodes[i].get_average_strategy())]*2
     if first == 1:
         p = p[::-1]
 
@@ -307,11 +309,11 @@ def dudo_play(first: int=random.randint(0, 1)) -> float:
         turn ^= 1
 
     print(f"Computer had roll {rolls[first ^ 1]}")
-    return (1 if first == 0 else -1)*game.util(rolls, history)
+    return (1 if turn == first else -1)*game.util(rolls, history)
 
 if __name__ == "__main__":
     random.seed(7)
-    iters = 10**3
+    iters = 10**5
 
     ### normal form games
     # # train against fixed opponent

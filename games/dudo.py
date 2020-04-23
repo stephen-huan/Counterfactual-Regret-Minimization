@@ -25,6 +25,7 @@ def util(rolls: list, history: list) -> float:
     # dudo has been called
     if history[DUDO]:
         l = last(history)
+        assert l != -1
         n, r = num(l), rank(l)
         t = rolls.count(1) + (rolls.count(r) if r != 1 else 0)
         # guessed exactly right
